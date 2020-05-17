@@ -6,9 +6,13 @@ ARG FFMPEG_VERSION=4.2.2
 FROM node:lts-alpine as build-deps
 RUN apk add --no-cache git
 WORKDIR /usr/src/app
-RUN git clone https://github.com/hive-streamer/dashboard.git .
+RUN git clone https://github.com/hive-streamer/dashboard.git
+RUN git clone https://github.com/hive-streamer/backend.git
+WORKDIR /usr/src/app/dashboard
 RUN yarn
 RUN yarn build
+WORKDIR /usr/src/app/backend
+RUN yarn
 
 ##############################
 # Build the NGINX-build image.
@@ -130,7 +134,7 @@ RUN rm -rf /var/cache/* /tmp/*
 
 ##########################
 # Build the release image.
-FROM node:current-alpine
+FROM node:lts-alpine
 LABEL MAINTAINER Michael Smith <selabie68@gmail.com>
 
 # Set default ports.
@@ -160,11 +164,13 @@ COPY --from=build-nginx /usr/local/nginx /usr/local/nginx
 COPY --from=build-nginx /etc/nginx /etc/nginx
 COPY --from=build-ffmpeg /usr/local /usr/local
 COPY --from=build-ffmpeg /usr/lib/libfdk-aac.so.2 /usr/lib/libfdk-aac.so.2
-COPY --from=build-deps /usr/src/app/build /usr/share/nginx/html
+COPY --from=build-deps /usr/src/app/dashboard/build /usr/share/nginx/html
+COPY --from=build-deps /usr/src/app/backend /usr/share/backend
 
 # Add NGINX path, config and static files.
 ENV PATH "${PATH}:/usr/local/nginx/sbin"
 RUN mkdir -p /opt/data
+ADD ./start.sh /usr/share/start.sh
 COPY ./nginx/conf /etc/nginx
 COPY ./nginx/stat /usr/share/nginx/html
 
@@ -172,6 +178,4 @@ EXPOSE 3334
 EXPOSE 1935
 EXPOSE 80
 
-CMD envsubst "$(env | sed -e 's/=.*//' -e 's/^/\$/g')" < \
-  /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && \
-  nginx && node /usr/share/backend/index.js
+CMD sh /usr/share/start.sh
